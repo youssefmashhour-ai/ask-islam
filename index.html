@@ -16,7 +16,8 @@ button:disabled{opacity:.6}
 .card{background:#fff;border-radius:14px;padding:16px 18px;margin-top:18px;box-shadow:0 1px 4px #0001}
 .verdict{border-right:5px solid #14532d;background:#ecf6ef}
 .card h3{margin:0 0 6px;font-size:1rem;color:#14532d}
-.card p,.card li{margin:4px 0;white-space:pre-wrap}
+.card p,.card li{margin:4px 0}
+.card ul{margin:4px 0;padding-right:20px}
 .note{font-size:.85rem;color:#6b7a70;margin-top:24px}
 a{color:#14532d}
 </style>
@@ -42,7 +43,20 @@ function parse(t){
   }
   return Object.keys(sec).length?sec:{'التفاصيل':t};
 }
-function card(title,body,cls){return `<div class="card ${cls||''}"><h3>${title}</h3><p>${esc(body.trim())}</p></div>`}
+function inline(s){return esc(s).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')}
+function fmt(body){
+  let h='',inList=false;
+  for(const raw of body.trim().split('\n')){
+    const line=raw.trim();
+    const m=line.match(/^[*-]\s+(.*)$/);
+    if(m){if(!inList){h+='<ul>';inList=true}h+='<li>'+inline(m[1])+'</li>';continue}
+    if(inList){h+='</ul>';inList=false}
+    if(line)h+='<p>'+inline(line)+'</p>';
+  }
+  if(inList)h+='</ul>';
+  return h;
+}
+function card(title,body,cls){return `<div class="card ${cls||''}"><h3>${title}</h3>${fmt(body)}</div>`}
 async function ask(){
   const question=q.value.trim();if(!question)return;
   btn.disabled=true;out.innerHTML='<div class="card">بدوّر وبراجع المصادر...</div>';
