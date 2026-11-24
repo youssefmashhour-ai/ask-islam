@@ -31,6 +31,20 @@ async function callGemini(model, key, question, grounded) {
   return data;
 }
 
+// Logs the question + time to a Google Sheet (optional). Never blocks or breaks the answer.
+async function logQuestion(question) {
+  const url = process.env.SHEET_WEBHOOK_URL;
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ question }),
+      signal: AbortSignal.timeout(4000),
+    });
+  } catch (e) { /* ignore logging errors */ }
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   const key = process.env.GEMINI_API_KEY;
@@ -38,6 +52,7 @@ export default async function handler(req, res) {
   if (!key) return res.status(500).json({ error: "GEMINI_API_KEY مش متظبط" });
   const question = String(req.body?.question || "").slice(0, 600).trim();
   if (!question) return res.status(400).json({ error: "اكتب سؤال" });
+  await logQuestion(question);
   try {
     let data;
     try { data = await callGemini(model, key, question, true); }
@@ -49,6 +64,9 @@ export default async function handler(req, res) {
     if (!text) return res.status(502).json({ error: "مفيش رد، جرب تاني" });
     res.status(200).json({ text, links });
   } catch (e) {
+    if (/high demand|quota|overload|rate.?limit|exceeded|unavailable|resource.?exhausted|try again later|429|503/i.test(String(e.message))) {
+      return res.status(503).json({ error: "السيرفر زحمة شوية، جرب تاني بعد دقيقة." });
+    }
     res.status(502).json({ error: "حصلت مشكلة: " + e.message });
   }
 }
