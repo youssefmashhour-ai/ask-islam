@@ -31,6 +31,21 @@ async function callGemini(model, key, question, grounded) {
   return data;
 }
 
+const BUSY = /high demand|quota|overload|rate.?limit|exceeded|unavailable|resource.?exhausted|try again later|429|503/i;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Retries up to 2 times (after 2s, then 4s) when Google says it is busy.
+async function callWithRetry(model, key, question, grounded) {
+  const waits = [2000, 4000];
+  for (let i = 0; ; i++) {
+    try { return await callGemini(model, key, question, grounded); }
+    catch (e) {
+      if (i >= waits.length || !BUSY.test(String(e.message))) throw e;
+      await sleep(waits[i]);
+    }
+  }
+}
+
 // Logs the question + time to a Google Sheet (optional). Never blocks or breaks the answer.
 async function logQuestion(question) {
   const url = process.env.SHEET_WEBHOOK_URL;
@@ -55,8 +70,8 @@ export default async function handler(req, res) {
   await logQuestion(question);
   try {
     let data;
-    try { data = await callGemini(model, key, question, true); }
-    catch (e) { data = await callGemini(model, key, question, false); } // fallback if grounding isn't free on this model
+    try { data = await callWithRetry(model, key, question, true); }
+    catch (e) { data = await callWithRetry(model, key, question, false); } // fallback if grounding isn't free on this model
     const cand = data.candidates?.[0];
     const text = (cand?.content?.parts || []).map(p => p.text || "").join("");
     const links = (cand?.groundingMetadata?.groundingChunks || [])
@@ -64,7 +79,7 @@ export default async function handler(req, res) {
     if (!text) return res.status(502).json({ error: "مفيش رد، جرب تاني" });
     res.status(200).json({ text, links });
   } catch (e) {
-    if (/high demand|quota|overload|rate.?limit|exceeded|unavailable|resource.?exhausted|try again later|429|503/i.test(String(e.message))) {
+    if (BUSY.test(String(e.message))) {
       return res.status(503).json({ error: "السيرفر زحمة شوية، جرب تاني بعد دقيقة." });
     }
     res.status(502).json({ error: "حصلت مشكلة: " + e.message });
